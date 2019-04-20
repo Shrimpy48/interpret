@@ -2,24 +2,125 @@ import pycuda.autoinit
 import pycuda.driver as drv
 import numpy
 from pycuda.compiler import SourceModule
+from copy import deepcopy
 
 
 class Function:
-    def __init__(self, args, body=None):
-        self.args = args
-        self.body = body
+    def __init__(self, name):
+        self.name = name
+        self.args = []
+        self.defs = []
+        self.given_args = []
+
+    def __str__(self):
+        string = self.name
+        for arg in self.given_args:
+            string += " (" + str(arg) + ")"
+        return string
+
+    def __repr__(self):
+        return "Function(" + self.name + ")"
+
+    def add_def(self, args, body):
+        self.args.append(args)
+        self.defs.append(body)
+
+    def evaluate(self, new_args, namespace):
+        args = self.given_args + new_args
+        string = self.name
+        for arg in args:
+            string += " (" + str(arg) + ")"
+        arg_matches = deepcopy(self.args)
+        for i in range(len(self.given_args), len(args)):
+            for j in range(len(self.args)):
+                if i < len(self.args[j]) and not isinstance(self.args[j][i], Function):
+                    if args[i] != self.args[j][i]:
+                        arg_matches[j] = None
+        for i in range(len(arg_matches)):
+            if arg_matches[i] is not None and len(arg_matches[i]) <= len(args):
+                result = self.call(args, i, namespace)
+                return result
+        matches = [arg for arg in arg_matches if arg is not None]
+        defs = [self.defs[i] for i in range(len(arg_matches)) if arg_matches[i] is not None]
+        result = type(self)(self.name)
+        for i in range(len(matches)):
+            result.add_def(matches[i], defs[i])
+        result.given_args = args
+        return result
+
+    def call(self, args, which, namespace):
+        taken_num = len(self.args[which])
+        local_namespace = namespace
+        for i in range(taken_num):
+            if isinstance(self.args[which][i], Function):
+                local_namespace[self.args[which][i].name] = args[i]
+                if isinstance(args[i], Function):
+                    local_namespace[self.args[which][i].name].name = self.args[which][i].name
+        body_parts = [value(part, local_namespace) for part in separate(self.defs[which])]
+        if not isinstance(body_parts[0], Function):
+            return body_parts[0]
+        func = body_parts[0]
+        func_args = body_parts[1:]
+        result = func.evaluate(func_args, local_namespace)
+        if not isinstance(result, Function):
+            return result
+        return result.evaluate(args[taken_num:], namespace)
+
+
+class Add(Function):
+    def __init__(self, name=None):
+        if name is not None:
+            super().__init__(name)
+        else:
+            super().__init__("add")
+        self.add_def([value("a", {}), value("b", {})], "")
+
+    def __repr__(self):
+        return "Add(" + self.name + ")"
+
+    def call(self, args, which, namespace):
+        if self.defs[which] != "":
+            return super().call(args, which, namespace)
+        local_namespace = namespace
+        for i in range(len(self.args[which])):
+            if isinstance(self.args[which][i], Function):
+                local_namespace[self.args[which][i].name] = args[i]
+                if isinstance(args[i], Function):
+                    local_namespace[self.args[which][i].name].name = self.args[which][i].name
+        return local_namespace["a"] + local_namespace["b"]
+
+
+class Mult(Function):
+    def __init__(self, name=None):
+        if name is not None:
+            super().__init__(name)
+        else:
+            super().__init__("mult")
+        self.add_def([value("a", {}), value("b", {})], "")
+
+    def __repr__(self):
+        return "Mult(" + self.name + ")"
+
+    def call(self, args, which, namespace):
+        if self.defs[which] != "":
+            return super().call(args, which, namespace)
+        local_namespace = namespace
+        for i in range(len(self.args[which])):
+            if isinstance(self.args[which][i], Function):
+                local_namespace[self.args[which][i].name] = args[i]
+                if isinstance(args[i], Function):
+                    local_namespace[self.args[which][i].name].name = self.args[which][i].name
+        return local_namespace["a"] * local_namespace["b"]
 
 
 class Program:
     def __init__(self, code_lines):
-        self.objects = {}
+        self.functions = {"add": Add(), "mult": Mult()}
         self.actions = []
         for line in code_lines:
             stripped = line.strip()
             if stripped != "":
                 self.parse_dec(stripped)
-
-        print(self.objects)
 
     def parse_dec(self, line):
         parts = line.split("=")
@@ -31,18 +132,12 @@ class Program:
             dec_parts = separate(declaration)
             name = dec_parts[0]
             args = dec_parts[1:]
-            arg_vals = []
-            arg_vars = []
-            for arg in args:
-                val = self.literal(arg)
-                if val is None:
-                    arg_vars.append(arg)
-                arg_vals.append(val)
-            if name not in self.objects:
-                self.objects[name] = []
-            self.objects[name].append((arg_vals, Function(arg_vars, body=definition)))
+            arg_vals = [value(arg, {}) for arg in args]
+            if name not in self.functions:
+                self.functions[name] = Function(name)
+            self.functions[name].add_def(arg_vals, definition)
         else:
-            action_parts = parts[0].split("<-")
+            action_parts = parts[0].split(":")
             if len(action_parts) != 2:
                 raise SyntaxError
             action, data = action_parts
@@ -51,78 +146,47 @@ class Program:
     def run(self):
         for action, data in self.actions:
             if action == "output":
-                value = self.evaluate(data, {})
-                print(value)
+                result = value(data, self.functions)
+                print(data, "=", result)
+            elif action == "input":
+                val = input(data + ": ")
+                self.functions[data] = value(val, self.functions)
             else:
-                raise RuntimeError("Unknown action", action)
+                raise RuntimeError("Unknown action")
 
-    def evaluate(self, exp, local_vars):
-        print("Evaluating", exp)
-        while exp[0] == "(" and exp[-1] == ")":
-            exp = exp[1:-1]
-        parts = separate(exp)
-        val = self.literal(parts[0])
-        if val is not None:
-            return val
-        args = parts[1:]
-        arg_vals = []
-        for arg in args:
-            val = self.evaluate(arg, local_vars)
-            arg_vals.append(val)
-        func_name = parts[0]
-        if func_name in local_vars:
-            funcs = local_vars[func_name]
-        elif func_name in self.objects:
-            funcs = self.objects[func_name]
-        else:
-            raise RuntimeError("Could not find function", func_name)
-        func = None
-        func_args = None
-        for func_opt_args, func_opt in funcs:
-            match = True
-            if len(arg_vals) != len(func_opt_args):
-                match = False
-            for i in range(len(func_opt_args)):
-                if func_opt_args[i] is not None and func_opt_args[i] != arg_vals[i]:
-                    match = False
-            if match:
-                func = func_opt
-                func_args = func_opt_args
-                break
-        if func is None:
-            raise RuntimeError("Could not match arguments")
-        variables = {}
-        count = 0
-        for i in range(len(func_args)):
-            if func_args[i] is None:
-                variables[func.args[count]] = arg_vals[i]
-                count += 1
-        return self.evaluate(func.body, variables)
 
-    @classmethod
-    def literal(cls, string):
-        stripped = string.strip()
-        if stripped[0] == stripped[-1] == '"':
-            return stripped[1:-1]
-        if stripped[0] == "[" and stripped[-1] == "]":
-            parts = separate(stripped[1:-1])
-            val = []
-            for part in parts:
-                val.append(cls.literal(part))
-            return numpy.array(val)
-        try:
-            val = numpy.int(stripped)
-        except ValueError:
-            pass
-        else:
-            return val
-        try:
-            val = numpy.float32(stripped)
-        except ValueError:
-            pass
-        else:
-            return val
-        return None
+def value(string, namespace):
+    stripped = string.strip()
+    while stripped[0] == "(" and stripped[-1] == ")":
+        stripped = stripped[1:-1]
+    if stripped[0] == stripped[-1] == '"':
+        return stripped[1:-1]
+    if stripped[0] == "[" and stripped[-1] == "]":
+        parts = separate(stripped[1:-1])
+        val = []
+        for part in parts:
+            val.append(value(part, namespace))
+        return numpy.array(val)
+    try:
+        val = numpy.int(stripped)
+    except ValueError:
+        pass
+    else:
+        return val
+    try:
+        val = numpy.float32(stripped)
+    except ValueError:
+        pass
+    else:
+        return val
+    parts = separate(stripped)
+    name = parts[0]
+    args = [value(arg, namespace) for arg in parts[1:]]
+    if name in namespace:
+        if not isinstance(namespace[name], Function):
+            return namespace[name]
+        return namespace[name].evaluate(args, namespace)
+    return Function(name).evaluate(args, namespace)
 
 
 def separate(string):
@@ -157,4 +221,6 @@ with open(filename, "r") as f:
     code = f.readlines()
 
 program = Program(code)
+# for func in program.functions.values():
+#     print(func.name, func.args, func.defs)
 program.run()
