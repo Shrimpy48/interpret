@@ -202,20 +202,25 @@ class Program:
             if name not in self.functions:
                 self.functions[name] = Function(name)
             self.functions[name].add_def(arg_vals, definition)
+            return True
         else:
             action_parts = parts[0].split(":")
             if len(action_parts) != 2:
                 raise SyntaxError
             action, data = action_parts
-            self.run(action.strip(), data.strip())
+            return self.run(action.strip(), data.strip())
 
     def run(self, action, data):
         if action == "output":
             result = value(data, self.functions)
             print(data, "=", result)
+            return True
         elif action == "input":
             val = input(data + ": ")
             self.functions[data] = value(val, self.functions)
+            return True
+        elif action == "quit":
+            return False
         else:
             raise RuntimeError("Unknown action")
 
@@ -281,17 +286,17 @@ def separate(string):
     return parts
 
 
-filename = input("File to execute: ")
-if filename == "shell":
-    program = Program()
-    line_in = ""
-    while line_in != "quit":
+if __name__ == "__main__":
+    filename = input("File to execute: ")
+    if filename == "shell":
+        program = Program()
         line_in = input("> ")
-        program.read_line(line_in)
-else:
-    with open(filename, "r") as f:
-        code = f.readlines()
-
-program = Program()
-for line in code:
-    program.read_line(line)
+        while program.read_line(line_in):
+            line_in = input("> ")
+    else:
+        with open(filename, "r") as f:
+            code = f.readlines()
+        program = Program()
+        for line in code:
+            if not program.read_line(line):
+                break
