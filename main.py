@@ -62,9 +62,12 @@ class Function:
         func = body_parts[0]
         func_args = body_parts[1:]
         result = func.evaluate(func_args, local_namespace)
+        remaining_args = args[taken_num:]
         if not isinstance(result, Function):
+            if len(remaining_args) > 0:
+                raise RuntimeError("Too many arguments for " + self.name)
             return result
-        return result.evaluate(args[taken_num:], namespace)
+        return result.evaluate(remaining_args, namespace)
 
 
 class Add(Function):
@@ -81,13 +84,18 @@ class Add(Function):
     def call(self, args, which, namespace):
         if self.defs[which] != "":
             return super().call(args, which, namespace)
+        taken_num = len(self.args[which])
         local_namespace = namespace
-        for i in range(len(self.args[which])):
+        for i in range(taken_num):
             if isinstance(self.args[which][i], Function):
                 local_namespace[self.args[which][i].name] = args[i]
                 if isinstance(args[i], Function):
                     local_namespace[self.args[which][i].name].name = self.args[which][i].name
-        return local_namespace["a"] + local_namespace["b"]
+        result = local_namespace["a"] + local_namespace["b"]
+        remaining_args = args[taken_num:]
+        if len(remaining_args) > 0:
+            raise RuntimeError("Too many arguments for " + self.name)
+        return result
 
 
 class Mult(Function):
@@ -104,25 +112,83 @@ class Mult(Function):
     def call(self, args, which, namespace):
         if self.defs[which] != "":
             return super().call(args, which, namespace)
+        taken_num = len(self.args[which])
         local_namespace = namespace
-        for i in range(len(self.args[which])):
+        for i in range(taken_num):
             if isinstance(self.args[which][i], Function):
                 local_namespace[self.args[which][i].name] = args[i]
                 if isinstance(args[i], Function):
                     local_namespace[self.args[which][i].name].name = self.args[which][i].name
-        return local_namespace["a"] * local_namespace["b"]
+        result = local_namespace["a"] * local_namespace["b"]
+        remaining_args = args[taken_num:]
+        if len(remaining_args) > 0:
+            raise RuntimeError("Too many arguments for " + self.name)
+        return result
+
+
+class Sub(Function):
+    def __init__(self, name=None):
+        if name is not None:
+            super().__init__(name)
+        else:
+            super().__init__("sub")
+        self.add_def([value("a", {}), value("b", {})], "")
+
+    def __repr__(self):
+        return "Sub(" + self.name + ")"
+
+    def call(self, args, which, namespace):
+        if self.defs[which] != "":
+            return super().call(args, which, namespace)
+        taken_num = len(self.args[which])
+        local_namespace = namespace
+        for i in range(taken_num):
+            if isinstance(self.args[which][i], Function):
+                local_namespace[self.args[which][i].name] = args[i]
+                if isinstance(args[i], Function):
+                    local_namespace[self.args[which][i].name].name = self.args[which][i].name
+        result = local_namespace["a"] - local_namespace["b"]
+        remaining_args = args[taken_num:]
+        if len(remaining_args) > 0:
+            raise RuntimeError("Too many arguments for " + self.name)
+        return result
+
+
+class Div(Function):
+    def __init__(self, name=None):
+        if name is not None:
+            super().__init__(name)
+        else:
+            super().__init__("div")
+        self.add_def([value("a", {}), value("b", {})], "")
+
+    def __repr__(self):
+        return "Div(" + self.name + ")"
+
+    def call(self, args, which, namespace):
+        if self.defs[which] != "":
+            return super().call(args, which, namespace)
+        taken_num = len(self.args[which])
+        local_namespace = namespace
+        for i in range(taken_num):
+            if isinstance(self.args[which][i], Function):
+                local_namespace[self.args[which][i].name] = args[i]
+                if isinstance(args[i], Function):
+                    local_namespace[self.args[which][i].name].name = self.args[which][i].name
+        result = local_namespace["a"] / local_namespace["b"]
+        remaining_args = args[taken_num:]
+        if len(remaining_args) > 0:
+            raise RuntimeError("Too many arguments for " + self.name)
+        return result
 
 
 class Program:
-    def __init__(self, code_lines):
-        self.functions = {"add": Add(), "mult": Mult()}
-        self.actions = []
-        for line in code_lines:
-            stripped = line.strip()
-            if stripped != "":
-                self.parse_dec(stripped)
+    def __init__(self):
+        self.functions = {"add": Add(), "mult": Mult(), "sub": Sub(), "div": Div()}
 
-    def parse_dec(self, line):
+    def read_line(self, line):
+        if line.isspace():
+            return
         parts = line.split("=")
         if len(parts) > 2:
             raise SyntaxError
@@ -141,18 +207,17 @@ class Program:
             if len(action_parts) != 2:
                 raise SyntaxError
             action, data = action_parts
-            self.actions.append((action.strip(), data.strip()))
+            self.run(action.strip(), data.strip())
 
-    def run(self):
-        for action, data in self.actions:
-            if action == "output":
-                result = value(data, self.functions)
-                print(data, "=", result)
-            elif action == "input":
-                val = input(data + ": ")
-                self.functions[data] = value(val, self.functions)
-            else:
-                raise RuntimeError("Unknown action")
+    def run(self, action, data):
+        if action == "output":
+            result = value(data, self.functions)
+            print(data, "=", result)
+        elif action == "input":
+            val = input(data + ": ")
+            self.functions[data] = value(val, self.functions)
+        else:
+            raise RuntimeError("Unknown action")
 
 
 def value(string, namespace):
@@ -216,11 +281,17 @@ def separate(string):
     return parts
 
 
-filename = "testprog.shr"  # input("File to execute: ")
-with open(filename, "r") as f:
-    code = f.readlines()
+filename = input("File to execute: ")
+if filename == "shell":
+    program = Program()
+    line_in = ""
+    while line_in != "quit":
+        line_in = input("> ")
+        program.read_line(line_in)
+else:
+    with open(filename, "r") as f:
+        code = f.readlines()
 
-program = Program(code)
-# for func in program.functions.values():
-#     print(func.name, func.args, func.defs)
-program.run()
+program = Program()
+for line in code:
+    program.read_line(line)
