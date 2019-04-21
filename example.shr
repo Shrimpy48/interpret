@@ -1,4 +1,5 @@
 two = 2
+
 square x = mult x x
 
 pow a 0 = 1

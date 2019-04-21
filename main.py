@@ -65,8 +65,6 @@ class Function:
         for i in range(taken_num):
             if isinstance(self.args[which][i], Function):
                 local_namespace[self.args[which][i].name] = args[i]
-                if isinstance(args[i], Function):
-                    local_namespace[self.args[which][i].name].name = self.args[which][i].name
         body_parts = [value(part, local_namespace) for part in separate(self.defs[which])]
         if not isinstance(body_parts[0], Function):
             return body_parts[0]
@@ -100,10 +98,16 @@ class Add(Function):
         for i in range(taken_num):
             if isinstance(self.args[which][i], Function):
                 local_namespace[self.args[which][i].name] = args[i]
-                if isinstance(args[i], Function):
-                    local_namespace[self.args[which][i].name].name = self.args[which][i].name
-        result = local_namespace["a"] + local_namespace["b"]
+        a = local_namespace["a"]
+        b = local_namespace["b"]
         remaining_args = args[taken_num:]
+        if isinstance(a, Function) or isinstance(b, Function):
+            result = type(self)(self.name)
+            result.given_args = [a, b]
+            if len(remaining_args) > 0:
+                result.evaluate(remaining_args, namespace)
+            return result
+        result = a + b
         if len(remaining_args) > 0:
             raise RuntimeError("Too many arguments for " + self.name)
         return result
@@ -128,8 +132,6 @@ class Mult(Function):
         for i in range(taken_num):
             if isinstance(self.args[which][i], Function):
                 local_namespace[self.args[which][i].name] = args[i]
-                if isinstance(args[i], Function):
-                    local_namespace[self.args[which][i].name].name = self.args[which][i].name
         result = local_namespace["a"] * local_namespace["b"]
         remaining_args = args[taken_num:]
         if len(remaining_args) > 0:
@@ -156,8 +158,6 @@ class Sub(Function):
         for i in range(taken_num):
             if isinstance(self.args[which][i], Function):
                 local_namespace[self.args[which][i].name] = args[i]
-                if isinstance(args[i], Function):
-                    local_namespace[self.args[which][i].name].name = self.args[which][i].name
         result = local_namespace["a"] - local_namespace["b"]
         remaining_args = args[taken_num:]
         if len(remaining_args) > 0:
@@ -184,8 +184,6 @@ class Div(Function):
         for i in range(taken_num):
             if isinstance(self.args[which][i], Function):
                 local_namespace[self.args[which][i].name] = args[i]
-                if isinstance(args[i], Function):
-                    local_namespace[self.args[which][i].name].name = self.args[which][i].name
         result = local_namespace["a"] / local_namespace["b"]
         remaining_args = args[taken_num:]
         if len(remaining_args) > 0:
