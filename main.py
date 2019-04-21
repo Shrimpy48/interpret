@@ -188,10 +188,10 @@ class Program:
 
     def read_line(self, line):
         if line.isspace():
-            return
+            return True
         parts = line.split("=")
         if len(parts) > 2:
-            raise SyntaxError
+            raise RuntimeError("Expected func arg1 arg2 .. argN = def, got " + line)
         elif len(parts) == 2:
             declaration = parts[0].strip()
             definition = parts[1].strip()
@@ -206,7 +206,7 @@ class Program:
         else:
             action_parts = parts[0].split(":")
             if len(action_parts) != 2:
-                raise SyntaxError
+                raise RuntimeError("Expected action : data, got " + line)
             action, data = action_parts
             return self.run(action.strip(), data.strip())
 
@@ -218,6 +218,12 @@ class Program:
         elif action == "input":
             val = input(data + ": ")
             self.functions[data] = value(val, self.functions)
+            return True
+        elif action == "run":
+            with open(data, "r") as file:
+                code = file.readlines()
+            for line in code:
+                self.read_line(line)
             return True
         elif action == "quit":
             return False
@@ -287,16 +293,7 @@ def separate(string):
 
 
 if __name__ == "__main__":
-    filename = input("File to execute: ")
-    if filename == "shell":
-        program = Program()
+    program = Program()
+    line_in = input("> ")
+    while program.read_line(line_in):
         line_in = input("> ")
-        while program.read_line(line_in):
-            line_in = input("> ")
-    else:
-        with open(filename, "r") as f:
-            code = f.readlines()
-        program = Program()
-        for line in code:
-            if not program.read_line(line):
-                break
