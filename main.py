@@ -5,6 +5,11 @@ from pycuda.compiler import SourceModule
 from copy import deepcopy
 
 
+enable_log = True
+log_file = "log.txt"
+log_indent = 0
+
+
 class Function:
     def __init__(self, name):
         self.name = name
@@ -27,9 +32,11 @@ class Function:
 
     def evaluate(self, new_args, namespace):
         args = self.given_args + new_args
-        string = self.name
-        for arg in args:
-            string += " (" + str(arg) + ")"
+        if enable_log:
+            string = self.name
+            for arg in args:
+                string += " (" + str(arg) + ")"
+            log("(start)   evaluating " + string + " " + str(namespace), 1)
         arg_matches = deepcopy(self.args)
         for i in range(len(self.given_args), len(args)):
             for j in range(len(self.args)):
@@ -39,6 +46,8 @@ class Function:
         for i in range(len(arg_matches)):
             if arg_matches[i] is not None and len(arg_matches[i]) <= len(args):
                 result = self.call(args, i, namespace)
+                if enable_log:
+                    log("(full)    evaluating " + string + " got " + str(result), -1)
                 return result
         matches = [arg for arg in arg_matches if arg is not None]
         defs = [self.defs[i] for i in range(len(arg_matches)) if arg_matches[i] is not None]
@@ -46,11 +55,13 @@ class Function:
         for i in range(len(matches)):
             result.add_def(matches[i], defs[i])
         result.given_args = args
+        if enable_log:
+            log("(partial) evaluating " + string + " got " + str(result), -1)
         return result
 
     def call(self, args, which, namespace):
         taken_num = len(self.args[which])
-        local_namespace = namespace
+        local_namespace = deepcopy(namespace)
         for i in range(taken_num):
             if isinstance(self.args[which][i], Function):
                 local_namespace[self.args[which][i].name] = args[i]
@@ -85,7 +96,7 @@ class Add(Function):
         if self.defs[which] != "":
             return super().call(args, which, namespace)
         taken_num = len(self.args[which])
-        local_namespace = namespace
+        local_namespace = deepcopy(namespace)
         for i in range(taken_num):
             if isinstance(self.args[which][i], Function):
                 local_namespace[self.args[which][i].name] = args[i]
@@ -113,7 +124,7 @@ class Mult(Function):
         if self.defs[which] != "":
             return super().call(args, which, namespace)
         taken_num = len(self.args[which])
-        local_namespace = namespace
+        local_namespace = deepcopy(namespace)
         for i in range(taken_num):
             if isinstance(self.args[which][i], Function):
                 local_namespace[self.args[which][i].name] = args[i]
@@ -141,7 +152,7 @@ class Sub(Function):
         if self.defs[which] != "":
             return super().call(args, which, namespace)
         taken_num = len(self.args[which])
-        local_namespace = namespace
+        local_namespace = deepcopy(namespace)
         for i in range(taken_num):
             if isinstance(self.args[which][i], Function):
                 local_namespace[self.args[which][i].name] = args[i]
@@ -169,7 +180,7 @@ class Div(Function):
         if self.defs[which] != "":
             return super().call(args, which, namespace)
         taken_num = len(self.args[which])
-        local_namespace = namespace
+        local_namespace = deepcopy(namespace)
         for i in range(taken_num):
             if isinstance(self.args[which][i], Function):
                 local_namespace[self.args[which][i].name] = args[i]
@@ -205,9 +216,13 @@ class Program:
             return True
         else:
             action_parts = parts[0].split(":")
-            if len(action_parts) != 2:
+            if len(action_parts) == 2:
+                action, data = action_parts
+            elif len(action_parts) == 1:
+                data = action_parts[0]
+                action = "output"
+            else:
                 raise RuntimeError("Expected action : data, got " + line)
-            action, data = action_parts
             return self.run(action.strip(), data.strip())
 
     def run(self, action, data):
@@ -223,7 +238,8 @@ class Program:
             with open(data, "r") as file:
                 code = file.readlines()
             for line in code:
-                self.read_line(line)
+                if not self.read_line(line):
+                    return False
             return True
         elif action == "quit":
             return False
@@ -232,37 +248,60 @@ class Program:
 
 
 def value(string, namespace):
+    if enable_log:
+        log("(start)   finding value of " + string + " " + str(namespace), 1)
     stripped = string.strip()
     while stripped[0] == "(" and stripped[-1] == ")":
         stripped = stripped[1:-1]
     if stripped[0] == stripped[-1] == '"':
-        return stripped[1:-1]
+        result = stripped[1:-1]
+        if enable_log:
+            log("(value)   value of " + string + " is " + str(result), -1)
+        return result
     if stripped[0] == "[" and stripped[-1] == "]":
         parts = separate(stripped[1:-1])
         val = []
         for part in parts:
             val.append(value(part, namespace))
-        return numpy.array(val)
+        result = numpy.array(val)
+        if enable_log:
+            log("(value)   value of " + string + " is " + str(result), -1)
+        return result
     try:
         val = numpy.int(stripped)
     except ValueError:
         pass
     else:
-        return val
+        result = val
+        if enable_log:
+            log("(value)   value of " + string + " is " + str(result), -1)
+        return result
     try:
         val = numpy.float32(stripped)
     except ValueError:
         pass
     else:
-        return val
+        result = val
+        if enable_log:
+            log("(value)   value of " + string + " is " + str(result), -1)
+        return result
     parts = separate(stripped)
     name = parts[0]
     args = [value(arg, namespace) for arg in parts[1:]]
     if name in namespace:
         if not isinstance(namespace[name], Function):
-            return namespace[name]
-        return namespace[name].evaluate(args, namespace)
-    return Function(name).evaluate(args, namespace)
+            result = namespace[name]
+            if enable_log:
+                log("(name)    value of " + string + " is " + str(result), -1)
+            return result
+        result = namespace[name].evaluate(args, namespace)
+        if enable_log:
+            log("(namefun) value of " + string + " is " + str(result), -1)
+        return result
+    result = Function(name).evaluate(args, namespace)
+    if enable_log:
+        log("(func)    value of " + string + " is " + str(result), -1)
+    return result
 
 
 def separate(string):
@@ -292,7 +331,17 @@ def separate(string):
     return parts
 
 
+def log(string, ind_inc):
+    global log_indent
+    with open(log_file, "a") as file:
+        file.write("  " * log_indent + string + "\n")
+    log_indent += ind_inc
+
+
 if __name__ == "__main__":
+    if enable_log:
+        with open(log_file, "w") as file:
+            file.write("")
     program = Program()
     line_in = input("> ")
     while program.read_line(line_in):

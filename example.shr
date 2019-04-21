@@ -1,0 +1,17 @@
+two = 2
+square x = mult x x
+
+pow a 0 = 1
+pow a n = mult a (pow a (sub n 1))
+
+factorial 0 = 1
+factorial n = mult n (factorial (sub n 1))
+
+double = mult 2
+
+fibonacci 0 = 0
+fibonacci 1 = 1
+fibonacci n = add (fibonacci (sub n 1)) (fibonacci (sub n 2))
+
+input : y
+output : fibonacci y
