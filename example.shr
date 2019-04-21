@@ -14,5 +14,15 @@ fibonacci 0 = 0
 fibonacci 1 = 1
 fibonacci n = add (fibonacci (sub n 1)) (fibonacci (sub n 2))
 
-input : y
-output : fibonacci y
+input: y
+output: fibonacci y
+
+alist = [1 2 3 4 5]
+doublelist = map double alist
+output: doublelist
+
+complexfunc z = add (square z) (add z two)
+output: map complexfunc doublelist
+
+bigrange = rangeGPU 0 1000 0.1
+output: fromGPU (mult bigrange 4)

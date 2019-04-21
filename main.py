@@ -1,10 +1,15 @@
+from copy import deepcopy
+
 from core import Function, value, separate, enable_log, log_file
-from builtin_funcs import Add, Mult, Sub, Div
+from builtin_funcs import func_dict
+from builtin_funcs_CUDA import func_dict_CUDA
 
 
 class Program:
     def __init__(self):
-        self.functions = {"add": Add(), "mult": Mult(), "sub": Sub(), "div": Div()}
+        self.functions = deepcopy(func_dict)
+        for key, val in func_dict_CUDA.items():
+            self.functions[key] = val
 
     def read_line(self, line):
         if line.isspace():

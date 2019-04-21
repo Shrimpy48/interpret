@@ -1,4 +1,5 @@
 import pycuda.autoinit
+import pycuda.gpuarray as gpuarr
 import pycuda.driver as drv
 import numpy
 from pycuda.compiler import SourceModule
@@ -7,16 +8,16 @@ from copy import deepcopy
 from core import Function, value
 
 
-class Add(Function):
+class RangeGPU(Function):
     def __init__(self, name=None):
         if name is not None:
             super().__init__(name)
         else:
-            super().__init__("add")
-        self.add_def([value("a", {}), value("b", {})], "")
+            super().__init__("rangeGPU")
+        self.add_def([value("start", {}), value("stop", {}), value("step", {})], "")
 
     def __repr__(self):
-        return "Add(" + self.name + ")"
+        return "RangeGPU(" + self.name + ")"
 
     def call(self, args, which, namespace):
         if self.defs[which] != "":
@@ -26,31 +27,32 @@ class Add(Function):
         for i in range(taken_num):
             if isinstance(self.args[which][i], Function):
                 local_namespace[self.args[which][i].name] = args[i]
-        a = local_namespace["a"]
-        b = local_namespace["b"]
+        start = local_namespace["start"]
+        stop = local_namespace["stop"]
+        step = local_namespace["step"]
         remaining_args = args[taken_num:]
-        if isinstance(a, Function) or isinstance(b, Function):
+        if isinstance(start, Function) or isinstance(stop, Function) or isinstance(step, Function):
             result = type(self)(self.name)
-            result.given_args = [a, b]
+            result.given_args = [start, stop, step]
             if len(remaining_args) > 0:
                 result.evaluate(remaining_args, namespace)
             return result
-        result = a + b
+        result = gpuarr.arange(start, stop, step)
         if len(remaining_args) > 0:
             raise RuntimeError("Too many arguments for " + self.name)
         return result
 
 
-class Mult(Function):
+class ToGPU(Function):
     def __init__(self, name=None):
         if name is not None:
             super().__init__(name)
         else:
-            super().__init__("mult")
-        self.add_def([value("a", {}), value("b", {})], "")
+            super().__init__("toGPU")
+        self.add_def([value("array", {})], "")
 
     def __repr__(self):
-        return "Mult(" + self.name + ")"
+        return "ToGPU(" + self.name + ")"
 
     def call(self, args, which, namespace):
         if self.defs[which] != "":
@@ -60,23 +62,33 @@ class Mult(Function):
         for i in range(taken_num):
             if isinstance(self.args[which][i], Function):
                 local_namespace[self.args[which][i].name] = args[i]
-        result = local_namespace["a"] * local_namespace["b"]
+        arr = local_namespace["array"]
         remaining_args = args[taken_num:]
+        if isinstance(arr, Function):
+            result = type(self)(self.name)
+            result.given_args = [arr]
+            if len(remaining_args) > 0:
+                result.evaluate(remaining_args, namespace)
+            return result
+        if isinstance(arr, numpy.ndarray):
+            result = gpuarr.to_gpu(arr)
+        else:
+            raise RuntimeError("Invalid argument for " + self.name)
         if len(remaining_args) > 0:
             raise RuntimeError("Too many arguments for " + self.name)
         return result
 
 
-class Sub(Function):
+class FromGPU(Function):
     def __init__(self, name=None):
         if name is not None:
             super().__init__(name)
         else:
-            super().__init__("sub")
-        self.add_def([value("a", {}), value("b", {})], "")
+            super().__init__("fromGPU")
+        self.add_def([value("array", {})], "")
 
     def __repr__(self):
-        return "Sub(" + self.name + ")"
+        return "FromGPU(" + self.name + ")"
 
     def call(self, args, which, namespace):
         if self.defs[which] != "":
@@ -86,34 +98,21 @@ class Sub(Function):
         for i in range(taken_num):
             if isinstance(self.args[which][i], Function):
                 local_namespace[self.args[which][i].name] = args[i]
-        result = local_namespace["a"] - local_namespace["b"]
+        arr = local_namespace["array"]
         remaining_args = args[taken_num:]
-        if len(remaining_args) > 0:
-            raise RuntimeError("Too many arguments for " + self.name)
-        return result
-
-
-class Div(Function):
-    def __init__(self, name=None):
-        if name is not None:
-            super().__init__(name)
+        if isinstance(arr, Function):
+            result = type(self)(self.name)
+            result.given_args = [arr]
+            if len(remaining_args) > 0:
+                result.evaluate(remaining_args, namespace)
+            return result
+        if isinstance(arr, gpuarr.GPUArray):
+            result = arr.get()
         else:
-            super().__init__("div")
-        self.add_def([value("a", {}), value("b", {})], "")
-
-    def __repr__(self):
-        return "Div(" + self.name + ")"
-
-    def call(self, args, which, namespace):
-        if self.defs[which] != "":
-            return super().call(args, which, namespace)
-        taken_num = len(self.args[which])
-        local_namespace = deepcopy(namespace)
-        for i in range(taken_num):
-            if isinstance(self.args[which][i], Function):
-                local_namespace[self.args[which][i].name] = args[i]
-        result = local_namespace["a"] / local_namespace["b"]
-        remaining_args = args[taken_num:]
+            raise RuntimeError("Invalid argument for " + self.name)
         if len(remaining_args) > 0:
             raise RuntimeError("Too many arguments for " + self.name)
         return result
+
+
+func_dict_CUDA = {"rangeGPU": RangeGPU(), "toGPU": ToGPU(), "fromGPU": FromGPU()}

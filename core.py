@@ -2,7 +2,7 @@ import numpy
 from copy import deepcopy
 
 
-enable_log = False
+enable_log = True
 log_file = "log.txt"
 log_indent = 0
 
